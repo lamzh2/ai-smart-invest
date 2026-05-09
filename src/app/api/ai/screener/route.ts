@@ -1,59 +1,46 @@
 /**
- * AI 选股 API 代理 (SSE 流式)
- * POST /api/ai/screener → POST {FASTAPI_URL}/api/v1/ai/screener
+ * AI 选股 API
+ * POST /api/ai/screener
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
-
-const FASTAPI_URL = process.env.FASTAPI_URL || "http://localhost:8000";
+import { streamChat } from "@/lib/ai-client";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
-    return new Response(JSON.stringify({ error: "请先登录" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
 
   const ip = req.headers.get("x-forwarded-for") || "unknown";
-  const rateLimit = checkRateLimit(ip);
-  if (!rateLimit.ok) {
-    return new Response(
-      JSON.stringify({ error: "请求过于频繁，请1小时后再试" }),
-      { status: 429, headers: { "Content-Type": "application/json" } }
-    );
+  if (!checkRateLimit(ip).ok) {
+    return NextResponse.json({ error: "请求过于频繁" }, { status: 429 });
   }
 
-  const body = await req.json();
+  const { criteria } = await req.json();
 
   try {
-    const backendRes = await fetch(`${FASTAPI_URL}/api/v1/ai/screener`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      duplex: "half",
-    } as RequestInit);
-
-    if (!backendRes.ok) {
-      const err = await backendRes.text();
-      return new Response(err, { status: backendRes.status });
-    }
-
-    return new Response(backendRes.body, {
-      status: 200,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
+    const result = await streamChat([
+      {
+        role: "system",
+        content: `你是A股量化选股分析师。请根据用户条件推荐5只A股。返回JSON格式：
+{
+  "stocks": [
+    {"code": "000001", "name": "平安银行", "reason": "推荐理由", "score": 85}
+  ],
+  "summary": "总结"
+}`,
       },
-    });
-  } catch (error) {
-    return new Response(
-      JSON.stringify({ error: "AI 服务暂不可用" }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
+      { role: "user", content: `请根据以下条件筛选A股：${criteria || "综合评分最高的成长股"}` },
+    ]);
+
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return NextResponse.json(JSON.parse(jsonMatch[0]));
+    }
+    return NextResponse.json({ stocks: [], summary: result });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "选股失败" }, { status: 502 });
   }
 }

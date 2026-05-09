@@ -26,17 +26,26 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
+    // Use redirect: true to avoid session race condition
+    // NextAuth will handle redirect + session cookie correctly
     const result = await signIn("credentials", {
-      email, password, redirect: false,
+      email,
+      password,
+      redirect: false,
     });
 
     if (result?.error) {
       setError("邮箱或密码错误");
+      setLoading(false);
+    } else if (result?.ok) {
+      // Wait briefly for session to sync, then navigate
+      setTimeout(() => {
+        window.location.href = "/";
+      }, 300);
     } else {
-      router.push("/");
-      router.refresh();
+      // Fallback: hard reload to ensure session sync
+      window.location.href = "/";
     }
-    setLoading(false);
   };
 
   return (

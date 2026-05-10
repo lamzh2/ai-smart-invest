@@ -20,9 +20,11 @@ const protectedRoutes = [
  */
 const authRoutes = ["/login"];
 
-export default auth((req) => {
+export default auth(async (req) => {
   const { pathname } = req.nextUrl;
-  const isLoggedIn = !!req.auth;
+  // NextAuth v5: req.auth may be a Promise — always await
+  const session = await req.auth;
+  const isLoggedIn = !!session;
 
   // Protected routes: redirect to login if not authenticated
   const isProtected = protectedRoutes.some(
@@ -47,14 +49,6 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     * - favicon.ico (favicon)
-     * - public files
-     */
     "/((?!api|_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$).*)",
   ],
 };
